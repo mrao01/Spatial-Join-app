@@ -1,0 +1,54 @@
+import streamlit as st
+import pandas as pd
+import geopandas as gpd
+import requests
+from shapely.geometry import Point
+
+st.title("📍 Spatial Attribute Appender")
+st.write("Upload an Excel file of points to append attributes from a Polygon REST API.")
+
+# 1. Inputs
+api_url = st.text_input("Enter Polygon REST API URL", "https://services.arcgis.com/.../MapServer/0/query")
+uploaded_file = st.file_uploader("Choose an Excel file", type=["xls", "xlsx"])
+
+if uploaded_file and api_url:
+    # Load points
+    df = pd.read_excel(uploaded_file)
+    st.write("Preview of Uploaded Data:", df.head(3))
+    
+    # Identify Lat/Long columns
+    lon_col = st.selectbox("Select Longitude Column", df.columns)
+    lat_col = st.selectbox("Select Latitude Column", df.columns)
+
+    if st.button("Process Spatial Join"):
+        with st.spinner("Fetching polygons and intersecting..."):
+            try:
+                # 2. Convert Excel to GeoDataFrame
+                gdf_points = gpd.GeoDataFrame(
+                    df, geometry=gpd.points_from_xy(df[lon_col], df[lat_col]), crs="EPSG:4326"
+                )
+
+                # 3. Fetch Polygons from REST API
+                # Note: This assumes a standard GeoJSON/ArcGIS query format
+                params = {'where': '1=1', 'outFields': '*', 'f': 'geojson'}
+                response = requests.get(api_url, params=params)
+                gdf_polygons = gpd.read_file(response.text)
+
+                # Ensure CRS match
+                if gdf_polygons.crs != gdf_points.crs:
+                    gdf_polygons = gdf_polygons.to_crs(gdf_points.crs)
+
+                # 4. Spatial Join (Point-in-Polygon)
+                # 'within' checks if the point is inside the polygon
+                result = gpd.sjoin(gdf_points, gdf_polygons, how="left", predicate="within")
+
+                # 5. Clean up and Download
+                final_df = result.drop(columns=['geometry', 'index_right'])
+                st.success("Success! Attributes appended.")
+                st.write(final_df.head())
+                
+                csv = final_df.to_csv(index=False).encode('utf-8')
+                st.download_button("Download Updated CSV", csv, "updated_points.csv", "text/csv")
+                
+            except Exception as e:
+                st.error(f"Error: {e}")
