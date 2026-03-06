@@ -32,10 +32,22 @@ if uploaded_file:
     # 2. Map Preview (Pre-processing)
     with col2:
         st.write("### Point Preview")
-        map_df = df[[lat_col, lon_col]].dropna()
-        map_df.columns = ['lat', 'lon']
-        st.map(map_df)
-
+        try:
+            # Create a copy and force Lat/Lon to be numbers
+            map_df = df[[lat_col, lon_col]].copy()
+            map_df[lat_col] = pd.to_numeric(map_df[lat_col], errors='coerce')
+            map_df[lon_col] = pd.to_numeric(map_df[lon_col], errors='coerce')
+            
+            # Drop rows where coordinates are missing or invalid
+            map_df = map_df.dropna(subset=[lat_col, lon_col])
+            
+            if not map_df.empty:
+                map_df.columns = ['lat', 'lon']
+                st.map(map_df)
+            else:
+                st.warning("No valid coordinates found to display on map.")
+        except Exception as e:
+            st.error(f"Could not render map: {e}")
     if st.button("🚀 Process Spatial Join"):
         with st.spinner("Fetching polygons and intersecting..."):
             try:
@@ -68,4 +80,5 @@ if uploaded_file:
                 st.download_button("📥 Download Joined CSV", csv_output, "spatial_results.csv", "text/csv")
                 
             except Exception as e:
+
                 st.error(f"Error during processing: {e}")
